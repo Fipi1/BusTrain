@@ -1,0 +1,12 @@
+{
+  "API_KEY": "c019c62b-fa99-479b-9d4a-a99031579d5c",
+  "STATION_NAME_MAP": {
+    "Uppsala Centralstation": "Uppsala C",
+    "M�rsta station (Sigtuna kn)": "Märsta",
+    "B�lsta station (H�bo kn)": "Bålsta",
+    "Stockholm Centralstation": "Stockholm C",
+    "Stockholm City station (Stockholm kn)": "Stockholm City",
+    "Gullmarsplan T-bana (Stockholm kn)": "Gullmarsplan",
+    "Fru�ngen T-bana (Stockholm kn)": "Fruängen"
+  }
+}
