@@ -1,164 +1,79 @@
-﻿import tkinter as tk
-from tkinter import ttk
+import requests
+import streamlit as st
 from datetime import datetime
-from PIL import Image, ImageTk
+import json
 
-from Bus.Bus import Buss144, Buss144Fruangen
-from Train.Train import Train
+# Ladda mapping från config.json
+with open("pythonBuss144/pythonBuss144/config.json", encoding="utf-8") as f:
+    config = json.load(f)
 
-# Initiera boards
-buss = Buss144()
-buss_fruangen = Buss144Fruangen()
-tag = Train()
+STATION_NAME_MAP = config["STATION_NAME_MAP"]
 
-STOPS = [buss, buss_fruangen, tag]
+# API-nyckel från Streamlit secrets
+API_KEY = st.secrets["API_KEY"]
 
-departures_data = {s.name: [] for s in STOPS}
-last_fetch = {s.name: None for s in STOPS}
+# ======================
+# Funktion för att hämta avgångar
+# ======================
+def fetch_departures(stop_id, line_id=None, filter_list=None):
+    url = f"https://api.resrobot.se/v2.1/departureBoard?accessId={API_KEY}&id={stop_id}&format=json&maxJourneys=10"
+    if line_id:
+        url += f"&lineId={line_id}"
 
-tables = {}
-frames = {}  # för att kunna dölja/visa sektioner
+    resp = requests.get(url)
+    data = resp.json()
 
-# ----------------------------
-# GUI
-# ----------------------------
-root = tk.Tk()
-root.title("Live-tavla: Buss + Tåg")
+    result = []
+    for dep in data.get("Departure", []):
+        direction = dep["direction"]
 
-# Ladda logga och ikoner
-logo_img = Image.open("sl.png").resize((100, 100))
-logo_photo = ImageTk.PhotoImage(logo_img)
-
-bus_img = Image.open("bus.png").resize((30, 30))
-bus_icon = ImageTk.PhotoImage(bus_img)
-
-train_img = Image.open("train.png").resize((30, 30))
-train_icon = ImageTk.PhotoImage(train_img)
-
-# SL logga
-logo_label = tk.Label(root, image=logo_photo)
-logo_label.pack(pady=10)
-
-# Stor klocka
-clock_label = tk.Label(root, text="", font=("Arial", 32, "bold"))
-clock_label.pack(pady=10)
-
-
-# ----------------------------
-# Tabeller för varje stopp
-# ----------------------------
-for stop in STOPS:
-    frame = tk.Frame(root)
-
-    # Välj ikon baserat på namn
-    if "Buss" in stop.name:
-        icon = bus_icon
-    elif "Pendeltåg" in stop.name:
-        icon = train_icon
-    else:
-        icon = None
-
-    # Rubrik med ikon
-    header = tk.Frame(frame)
-    if icon:
-        icon_label = tk.Label(header, image=icon)
-        icon_label.pack(side="left", padx=5)
-    label = tk.Label(header, text=stop.name, font=("Arial", 14, "bold"))
-    label.pack(side="left")
-    header.pack(pady=(15, 5))
-
-    # Starta med minimikolumner
-    tree = ttk.Treeview(
-        frame,
-        columns=("Linje", "Planerad", "Nedräkning"),
-        show="headings",
-        height=5
-    )
-    tree.heading("Linje", text="Linje")
-    tree.heading("Planerad", text="Planerad tid")
-    tree.heading("Nedräkning", text="Tid kvar")
-    tree.pack(expand=True, fill="both", padx=20)
-
-    frame.pack(pady=(15, 5), fill="x")
-    tables[stop.name] = tree
-    frames[stop.name] = frame
-
-
-# ----------------------------
-# Uppdateringslogik
-# ----------------------------
-def update_board():
-    now = datetime.now()
-    clock_label.config(text=now.strftime("%H:%M:%S"))
-
-    for stop in STOPS:
-        # Dölj Fruängen före 16:00
-        if "Fruängen" in stop.name and now.hour < 16:
-            frames[stop.name].pack_forget()
+        # Filtrera på riktning
+        if filter_list and not any(f in direction for f in filter_list):
             continue
-        else:
-            if "Fruängen" in stop.name and not frames[stop.name].winfo_ismapped():
-                frames[stop.name].pack(pady=(15, 5), fill="x")
 
-        # Hämta nytt var 30:e sekund
-        if last_fetch[stop.name] is None or (now - last_fetch[stop.name]).total_seconds() > 30:
-            departures_data[stop.name] = stop.fetch()
-            last_fetch[stop.name] = now
+        dep_date = dep.get("date")
+        dep_time = dep.get("time")
+        dep_dt = datetime.strptime(f"{dep_date} {dep_time}", "%Y-%m-%d %H:%M:%S")
 
-        # Rensa tabellen
-        tables[stop.name].delete(*tables[stop.name].get_children())
+        rt_date = dep.get("rtDate", dep_date)
+        rt_time = dep.get("rtTime", dep_time)
+        rt_dt = datetime.strptime(f"{rt_date} {rt_time}", "%Y-%m-%d %H:%M:%S")
 
-        # Kolla om någon avgång har försening
-        has_delay = any(dep[4] for dep in departures_data[stop.name])
+        delay = int((rt_dt - dep_dt).total_seconds() // 60)
+        delay_text = f"⚠️ +{delay} min" if delay > 0 else ""
 
-        # Sätt kolumner dynamiskt
-        if has_delay:
-            tables[stop.name]["columns"] = ("Linje", "Planerad", "Realtid", "Nedräkning", "Försening")
-            for col in ("Linje", "Planerad", "Realtid", "Nedräkning", "Försening"):
-                tables[stop.name].heading(col, text=col)
-        else:
-            tables[stop.name]["columns"] = ("Linje", "Planerad", "Nedräkning")
-            for col in ("Linje", "Planerad", "Nedräkning"):
-                tables[stop.name].heading(col, text=col)
+        countdown = rt_dt - datetime.now()
+        minutes = int(countdown.total_seconds() // 60)
+        seconds = int(countdown.total_seconds() % 60)
 
-        # Lägg till nya rader
-        for line_name, dep_dt, rt_dt, countdown_base, delay_text in departures_data[stop.name]:
-            countdown = countdown_base - now
-            total_sec = int(countdown.total_seconds())
-            if total_sec < 0:
-                continue
+        countdown_str = "Avgår nu" if minutes == 0 and seconds == 0 else f"{minutes:02d}:{seconds:02d}"
 
-            minutes = total_sec // 60
-            seconds = total_sec % 60
-            countdown_str = "Avgår nu" if (minutes == 0 and seconds == 0) else f"{minutes:02d}:{seconds:02d}"
+        line_display = f"{dep['name']} → {STATION_NAME_MAP.get(direction, direction)}"
+        result.append((line_display, dep_time, rt_time, countdown_str, delay_text))
 
-            if delay_text:
-                delay_text = f"⚠️ {delay_text}"
-
-            # Färgkodning
-            if minutes < 5:
-                color = "green"
-            elif minutes <= 15:
-                color = "orange"
-            else:
-                color = "red"
-
-            # Dynamiskt values beroende på försening
-            if not delay_text:
-                values = (line_name, dep_dt.strftime("%H:%M:%S"), countdown_str)
-            else:
-                values = (line_name, dep_dt.strftime("%H:%M:%S"),
-                          rt_dt.strftime("%H:%M:%S"), countdown_str, delay_text)
-
-            tables[stop.name].insert("", "end", values=values, tags=(color,))
-
-        # Färginställningar
-        tables[stop.name].tag_configure("green", foreground="green")
-        tables[stop.name].tag_configure("orange", foreground="orange")
-        tables[stop.name].tag_configure("red", foreground="red")
-
-    root.after(1000, update_board)
+    return result
 
 
-update_board()
-root.mainloop()
+# ======================
+# Streamlit GUI
+# ======================
+st.set_page_config(page_title="Live-tavla: Buss + Tåg", layout="centered")
+
+st.title("🚌🚆 Live-tavla: Buss + Tåg")
+st.write(f"Senast uppdaterad: {datetime.now().strftime('%H:%M:%S')}")
+
+# Buss 144 från Myrvägen → Gullmarsplan
+st.subheader("Buss 144 → Gullmarsplan (Myrvägen)")
+buss_data = fetch_departures("740065500", line_id="1275014400001", filter_list=["Gullmarsplan"])
+st.table(buss_data)
+
+# Buss 144 från Älvsjö → Fruängen (efter kl 16)
+if datetime.now().hour >= 16:
+    st.subheader("Buss 144 → Fruängen (Älvsjö station)")
+    buss_fru_data = fetch_departures("740000789", line_id="1275014400001", filter_list=["Fruängen"])
+    st.table(buss_fru_data)
+
+# Pendeltåg från Älvsjö → Stockholm C
+st.subheader("Pendeltåg → Stockholm C (Älvsjö)")
+train_data = fetch_departures("740000789", filter_list=["Uppsala", "Märsta", "Bålsta", "Stockholm City", "Stockholm Central"])
+st.table(train_data)
