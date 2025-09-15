@@ -37,15 +37,10 @@ for stop in STOPS:
         else:
             countdown_str = f"{minutes:02d}:{seconds:02d}"
 
-        if delay_text:
-            delay_text = f"⚠️ {delay_text}"
-
         rows.append({
             "Linje": line_name,
             "Planerad": dep_dt.strftime("%H:%M:%S"),
-            "Realtid": rt_dt.strftime("%H:%M:%S"),
-            "Nedräkning": countdown_str,
-            "Försening": delay_text
+            "Nedräkning": countdown_str
         })
 
     st.subheader(stop.name)
@@ -54,6 +49,3 @@ for stop in STOPS:
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("Inga avgångar hittades just nu.")
-
-# 🔄 Auto-refresh varje sekund
-st_autorefresh = st.experimental_rerun
