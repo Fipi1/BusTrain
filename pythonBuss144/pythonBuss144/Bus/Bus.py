@@ -2,12 +2,8 @@
 from datetime import datetime
 import json
 
-# Ladda API-nyckel och stationsnamn
-with open("config.json") as f:
-    config = json.load(f)
-
 API_KEY = st.secrets["API_KEY"]
-STATION_NAME_MAP = config["STATION_NAME_MAP"]
+STATION_NAME_MAP = st.secrets["STATION_NAME_MAP"]
 
 
 class Buss144:
@@ -99,4 +95,5 @@ class Buss144Fruangen:
             result.append((line_display, dep_dt, rt_dt, countdown_base, delay_text))
 
         return sorted(result, key=lambda x: x[3])[:5]
+
 
